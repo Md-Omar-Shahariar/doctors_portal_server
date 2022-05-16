@@ -30,6 +30,39 @@ async function run() {
       res.send(services);
     });
 
+    app.get("/available", async (req, res) => {
+      const date = req.query.date || "May 18, 2022";
+
+      //get all services
+      console.log(date);
+
+      const services = await servicesCollection.find().toArray();
+      // console.log(services);
+
+      //get bookings of that day
+
+      const query = { date: date };
+      const bookings = await bookingCollection.find(query).toArray();
+      // console.log(bookings);
+
+      //for each service find bookings for that service
+
+      services.forEach((service) => {
+        // console.log(service);
+        const serviceBooking = bookings.filter(
+          (b) => b.treatment === service.name
+        );
+        console.log(serviceBooking);
+        // console.log("sasasd", serviceBooking);
+        // console.log(serviceBooking);
+        const booked = serviceBooking.map((s) => s.slot);
+        const available = service.slots.filter((s) => !booked.includes(s));
+        service.slots = available;
+      });
+
+      res.send(services);
+    });
+
     /**Api Naming Convention
      * app.get('/booking') get all booking or more than one
      * app.get('/booking/:id') get a specific booking
