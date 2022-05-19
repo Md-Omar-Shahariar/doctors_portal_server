@@ -1,6 +1,7 @@
 const express = require("express");
 const app = express();
-const { MongoClient, ServerApiVersion } = require("mongodb");
+var jwt = require("jsonwebtoken");
+const { MongoClient, ServerApiVersion, ReturnDocument } = require("mongodb");
 const port = process.env.PORT || 5000;
 const cors = require("cors");
 require("dotenv").config();
@@ -14,6 +15,22 @@ const client = new MongoClient(uri, {
   useUnifiedTopology: true,
   serverApi: ServerApiVersion.v1,
 });
+
+function verifyJWT(req, res, next) {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).send({ message: "UnAuthorized Access" });
+  }
+  const token = authHeader.split(" ")[1];
+
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, function (err, decoded) {
+    if (err) {
+      return res.status(403).send({ message: "Forbidden Token" });
+    }
+    req.decoded = decoded;
+    next();
+  });
+}
 
 async function run() {
   try {
@@ -30,6 +47,10 @@ async function run() {
       const services = await cursor.toArray();
       res.send(services);
     });
+    app.get("/users", verifyJWT, async (req, res) => {
+      const users = await userCollection.find().toArray();
+      res.send(users);
+    });
     app.put("/user/:email", async (req, res) => {
       const email = req.params.email;
       const filter = { email: email };
@@ -39,6 +60,22 @@ async function run() {
         $set: user,
       };
       const result = await userCollection.updateOne(filter, updateDoc, options);
+      const token = jwt.sign(
+        { email: email },
+        process.env.ACCESS_TOKEN_SECRET,
+        { expiresIn: "1h" }
+      );
+      res.send({ result, token });
+    });
+    app.put("/users/admin/:email", verifyJWT, async (req, res) => {
+      const email = req.params.email;
+      const filter = { email: email };
+
+      const updateDoc = {
+        $set: { role: "admin" },
+      };
+      const result = await userCollection.updateOne(filter, updateDoc);
+
       res.send(result);
     });
 
@@ -46,7 +83,6 @@ async function run() {
       const date = req.query.date || "May 18, 2022";
 
       //get all services
-      console.log(date);
 
       const services = await servicesCollection.find().toArray();
       // console.log(services);
@@ -82,25 +118,36 @@ async function run() {
      * app.patch("booking/:id")
      * app.delete("booking/:id")
      */
-    app.get("/booking", async (req, res) => {
+    app.get("/booking", verifyJWT, async (req, res) => {
+      // console.log(req.query);
       const patient = req.query.patient;
-      const query = { patient: patient };
-      const bookings = await bookingCollection.find(query).toArray();
-      res.send(bookings);
+      const decodedEmail = req.decoded.email;
+      if (patient === decodedEmail) {
+        const query = { email: patient };
+        console.log(query);
+
+        const bookings = await bookingCollection.find(query).toArray();
+        res.send(bookings);
+      } else {
+        return res.status(403).send({ message: "forbidden Access" });
+      }
     });
     app.post("/booking", async (req, res) => {
       const booking = req.body;
+      console.log(req.body);
       const query = {
         treatment: booking.treatment,
         date: booking.date,
-        patient: booking.patientName,
+        // slot: booking.slot,
+        patientName: booking.patientName,
       };
       const exist = await bookingCollection.findOne(query);
       if (exist) {
         return res.send({ success: false, booking: exist });
+      } else {
+        const result = await bookingCollection.insertOne(booking);
+        res.send({ success: true, result });
       }
-      const result = await bookingCollection.insertOne(booking);
-      res.send({ success: true, result });
     });
   } finally {
   }
